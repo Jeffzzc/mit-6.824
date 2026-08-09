@@ -1162,6 +1162,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.nextIndex = make([]int, len(peers))
 	rf.matchIndex = make([]int, len(peers))
 
+	rf.applyCh = applyCh
+
 	// 为不同节点生成不同的随机数序列。
 	//
 	// me 参与 seed，降低多个节点得到相同选举超时的概率。
