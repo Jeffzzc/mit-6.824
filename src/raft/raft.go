@@ -23,8 +23,8 @@ import "6.824/src/labrpc"
 import "math/rand"
 import "time"
 
-// import "bytes"
-// import "../labgob"
+import "bytes"
+import "6.824/src/labgob"
 
 
 
@@ -93,12 +93,10 @@ type Raft struct {
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
 
+	// ---------------- Persistent state ----------------
+	// 2C 才真正写入稳定存储，但 2B 已经需要维护这些状态。
 	currentTerm int
-
-	// votedFor 表示当前任期把票投给了谁。
-	// -1 表示本任期还没有投票。
 	votedFor    int
-
 	log         []LogEntry
 
 	// ---------------- Volatile state on all servers ----------------
@@ -161,6 +159,29 @@ func (rf *Raft) persist() {
 	// e.Encode(rf.yyy)
 	// data := w.Bytes()
 	// rf.persister.SaveRaftState(data)
+
+	// Figure 2 中只有以下三个状态需要持久化：
+	//   1. currentTerm
+	//   2. votedFor
+	//   3. log[]
+	//
+	// commitIndex、lastApplied、nextIndex、matchIndex 和 state
+	// 都是 volatile state，不能写入这里。
+	//
+	// 本实现中的 persist() 都在持有 rf.mu 时调用，因此在编码期间
+	// 不会有其他 goroutine 同时修改这些状态。
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+
+	if e.Encode(rf.currentTerm) != nil ||
+		e.Encode(rf.votedFor) != nil ||
+		e.Encode(rf.log) != nil {
+		// 编码失败时不要用一份不完整的数据覆盖已经保存的正确状态。
+		return
+	}
+
+	data := w.Bytes()
+	rf.persister.SaveRaftState(data)
 }
 
 
@@ -184,6 +205,33 @@ func (rf *Raft) readPersist(data []byte) {
 	//   rf.xxx = xxx
 	//   rf.yyy = yyy
 	// }
+
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+
+	// 先 decode 到临时变量。
+	// 只有三个字段全部解码成功后才覆盖 rf 的状态，避免半恢复状态。
+	var currentTerm int
+	var votedFor int
+	var logEntries []LogEntry
+
+	if d.Decode(&currentTerm) != nil ||
+		d.Decode(&votedFor) != nil ||
+		d.Decode(&logEntries) != nil {
+			// 解码失败，不更新任何状态。
+			return
+	}
+
+	rf.currentTerm = currentTerm
+	rf.votedFor = votedFor
+	
+	// 正常情况下持久化的日志一定包含 log[0] sentinel。
+	// 做这个保护可以避免损坏/旧数据造成后续 lastLogInfoLocked() 越界。
+	if len(logEntries) == 0 {
+		rf.log = []LogEntry{{Term: 0}}
+	} else {
+		rf.log = logEntries
+	}
 }
 
 
