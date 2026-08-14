@@ -219,6 +219,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.currentTerm = args.Term
 		rf.votedFor = -1
 		rf.state = Follower
+		rf.electionDeadline = time.Now().Add(electionTimeout)
 	}
 
 	reply.Term = rf.currentTerm
@@ -317,6 +318,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		rf.currentTerm = args.Term
 		rf.votedFor = -1
 		rf.state = Follower
+		rf.electionDeadline = time.Now().Add(electionTimeout)
 	}
 
 	rf.state = Follower
@@ -413,6 +415,10 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	index = len(rf.log) - 1
 	term = rf.currentTerm
 	rf.persist()
+
+	// 更新 Leader 自己的 matchIndex / nextIndex
+	rf.matchIndex[rf.me] = len(rf.log) - 1
+	rf.nextIndex[rf.me] = len(rf.log)
 
 	rf.broadcastAppendEntries(term)
 
@@ -645,12 +651,14 @@ func (rf *Raft) replicateToPeer(server int, term int) {
 		}
 		if reply.Success {
 			matched := args.PrevLogIndex + len(args.Entries)
-			if matched > rf.matchIndex[server] {
-				rf.matchIndex[server] = matched
-			}
-			if matched > rf.nextIndex[server] {
-				rf.nextIndex[server] = matched + 1
-			}
+			// if matched > rf.matchIndex[server] {
+			// 	rf.matchIndex[server] = matched
+			// }
+			// if matched > rf.nextIndex[server] {
+			// 	rf.nextIndex[server] = matched + 1
+			// }
+			rf.matchIndex[server] = matched
+    		rf.nextIndex[server] = matched + 1
 			if rf.advancedCommitLocked() {
 				needBroadcastCommit = true
 			}
