@@ -20,7 +20,7 @@ package raft
 import "sync"
 import "sync/atomic"
 import "6.824/src/labrpc"
-// import "math/rand"
+import "math/rand"
 import "time"
 
 import "bytes"
@@ -350,6 +350,10 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	for entryOffset < len(args.Entries) && insertIndex < len(rf.log) {
 		if rf.log[insertIndex].Term != args.Entries[entryOffset].Term {
 			rf.log = rf.log[:insertIndex]
+			// 截断后日志长度减少，必须保证 commitIndex 不越界
+			if rf.commitIndex >= len(rf.log) {
+				rf.commitIndex = len(rf.log) - 1
+			}
 			logChanged = true
 			break
 		}
@@ -550,7 +554,8 @@ func (rf *Raft) startElection() {
 }
 
 func (rf *Raft) resetElectionDeadlineLocked() {
-	rf.electionDeadline = time.Now().Add(electionTimeout)
+	offset := time.Duration(rand.Intn(int(electionTimeout))) 
+    rf.electionDeadline = time.Now().Add(electionTimeout + offset)
 }
 
 func (rf *Raft) lastLogInfoLocked() (int, int) {
@@ -807,7 +812,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.readPersist(persister.ReadRaftState())
 
 	rf.mu.Lock()
-	rf.electionDeadline = time.Now().Add(electionTimeout)
+	// rf.electionDeadline = time.Now().Add(electionTimeout)
+	rf.resetElectionDeadlineLocked()
 	rf.heartbeatDeadline = time.Now().Add(heartbeatInterval)
 	rf.mu.Unlock()
 
