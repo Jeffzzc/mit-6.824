@@ -8,6 +8,16 @@ import "math/big"
 type Clerk struct {
 	servers []*labrpc.ClientEnd
 	// You will have to modify this struct.
+
+	// 最近一次成功访问的 leader
+	// 下次优先找它，可以避免每次都从 server 0 开始试
+	leader int
+
+	// 每个 Clerk 有唯一 ClientId
+	clientId int64
+
+	// 每次新的逻辑请求递增
+	requestId int64
 }
 
 func nrand() int64 {
@@ -21,7 +31,19 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	ck := new(Clerk)
 	ck.servers = servers
 	// You'll have to add code here.
+
+	ck.leader = 0
+	ck.clientId = nrand()
+	ck.requestId = 0
 	return ck
+}
+
+// 返回一个新的 RequestId
+// 注意：一次逻辑请求只能调用一次
+// RPC retry 时必须继续使用同一个 requestId
+func(ck *Clerk) nextRequestId() int64 {
+	ck.requestId++
+	return ck.requestId
 }
 
 //
@@ -39,7 +61,40 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 func (ck *Clerk) Get(key string) string {
 
 	// You will have to modify this function.
-	return ""
+	requestId := ck.nextRequestId()
+
+	args := GetArgs{
+		Key: key,
+		ClientId: ck.clientId,
+		RequestId: requestId,
+	}
+
+	for {
+		server := ck.leader
+		var reply GetReply
+
+		ok := ck.servers[server].Call(
+			"KVServer.Get",
+			&args,
+			&reply,
+		)
+
+		if ok && !reply.WrongLeader {
+			if reply.Err == OK {
+				ck.leader = server
+				return reply.Value
+			}
+
+			if reply.Err == ErrNoKey {
+				ck.leader = server
+				return ""
+			}
+		}
+
+		// 当前 server 不是 leader，或者 RPC 失败。
+		// 换下一台。
+		ck.leader = (server + 1) % len(ck.servers)
+	}
 }
 
 //
@@ -54,6 +109,35 @@ func (ck *Clerk) Get(key string) string {
 //
 func (ck *Clerk) PutAppend(key string, value string, op string) {
 	// You will have to modify this function.
+	requestId := ck.nextRequestId()
+
+	args := PutAppendArgs{
+		Key: key, 
+		Value: value,
+		Op: op,
+		ClientId: ck.clientId,
+		RequestId: requestId,
+	}
+
+	for {
+		server := ck.leader
+		var reply PutAppendReply
+
+		ok := ck.servers[server].Call(
+			"KVServer.PutAppend",
+			&args,
+			&reply,
+		)
+
+		if ok && !reply.WrongLeader && reply.Err == OK {
+			ck.leader = server
+			return
+		}
+
+		// 当前 server 不是 leader，或者 RPC 失败。
+		// 换下一台。
+		ck.leader = (server + 1) % len(ck.servers)
+	}
 }
 
 func (ck *Clerk) Put(key string, value string) {

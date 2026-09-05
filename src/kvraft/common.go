@@ -16,18 +16,29 @@ type PutAppendArgs struct {
 	// You'll have to add definitions here.
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
+
+	// 唯一标识一个客户端请求
+	ClientId int64
+	RequestId int64
 }
 
 type PutAppendReply struct {
 	Err Err
+
+	WrongLeader bool
 }
 
 type GetArgs struct {
 	Key string
 	// You'll have to add definitions here.
+
+	ClientId int64
+	RequestId int64
 }
 
 type GetReply struct {
 	Err   Err
 	Value string
+
+	WrongLeader bool
 }
